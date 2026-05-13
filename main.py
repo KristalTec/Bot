@@ -1,61 +1,60 @@
-import os
-import threading
+from flask import Flask, request
+import telebot
 import google.generativeai as genai
-from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
-from flask import Flask
 
-# ١. درووستکردنی سێرڤەرێکی بچووک بۆ مانەوەی لە Render
-app = Flask(__name__)
-@app.route('/')
-def index():
-    return "Bot is successfully running on Render!"
-
-def run_web():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
-
-# ٢. کلیلەکانت
-TELEGRAM_TOKEN = '8725342011:AAFayx5fayQwUoFLDiXUdWWDVk0NMFI5DcA'
+# کلیلەکانت
+TOKEN = '8725342011:AAFayx5fayQwUoFLDiXUdWWDVk0NMFI5DcA'
 GEMINI_API_KEY = 'AIzaSyC0d32dYq3MZt2XJBLlPMggIHtWXSehJs4'
 
-# ڕێکخستنی جێمینای
+# ڕێکخستنی جێمینای و بۆتەکە
+bot = telebot.TeleBot(TOKEN)
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    welcome_text = "سڵاو! من بۆتی زیرەکی دەستکردم بۆ ئامادەکردنی سیمینار. 🎓\n\nتەنها ناونیشانی بابەتەکە و ئەو زمانەی دەتەوێت بۆم بنێرە."
-    await update.message.reply_text(welcome_text)
+app = Flask(__name__)
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
-    wait_message = await update.message.reply_text("⏳ خەریکی ئامادەکردنی سیمینارەکەم، تکایە کەمێک چاوەڕێ بکە...")
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    welcome_text = "سڵاو! من بۆتی زیرەکی دەستکردم بۆ ئامادەکردنی سیمینار. 🎓\n\nتەنها ناونیشانی بابەتەکە و ئەو زمانەی دەتەوێت بۆم بنێرە."
+    bot.reply_to(message, welcome_text)
+
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    bot.send_chat_action(message.chat.id, 'typing')
+    msg = bot.reply_to(message, "⏳ خەریکی ئامادەکردنی سیمینارەکەم، تکایە کەمێک چاوەڕێ بکە...")
     
     try:
-        prompt = f"""تۆ پرۆفیسۆر و شارەزایەکی بواری ئامادەکردنی سیمیناریت. بەکارهێنەرێک داوای ئەم بابەتەی لێکردوویت: "{user_text}"\nتکایە سیمینارێکی زانستی بۆ ئامادە بکە بە هەمان ئەو زمانەی کە داوای کردووە کە پێشەکی، ناوەڕۆک، و دەرەنجام لەخۆ بگرێت."""
+        prompt = f"تۆ پرۆفیسۆر و شارەزایەکی بواری ئامادەکردنی سیمیناریت. بەکارهێنەرێک داوای ئەم بابەتەی لێکردوویت: '{message.text}'\nتکایە سیمینارێکی زانستی، ورد و ڕێک و پێکی بۆ ئامادە بکە بە هەمان ئەو زمانەی کە داوای کردووە کە پێشەکی، ناوەڕۆک، و دەرەنجام لەخۆ بگرێت."
+        
         response = model.generate_content(prompt)
-        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=wait_message.message_id)
+        bot.delete_message(message.chat.id, msg.message_id)
         
         text_response = response.text
+        # دابەشکردنی نامەکان ئەگەر زۆر درێژ بوون
         if len(text_response) > 4000:
             for i in range(0, len(text_response), 4000):
-                await update.message.reply_text(text_response[i:i+4000])
+                bot.send_message(message.chat.id, text_response[i:i+4000])
         else:
-            await update.message.reply_text(text_response)
+            bot.send_message(message.chat.id, text_response)
+            
     except Exception as e:
-        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=wait_message.message_id)
-        await update.message.reply_text("❌ کێشەیەک ڕوویدا لە کاتی درووستکردنی سیمینارەکەدا.")
+        bot.delete_message(message.chat.id, msg.message_id)
+        bot.send_message(message.chat.id, "❌ ببورە، کێشەیەک ڕوویدا لە کاتی درووستکردنی سیمینارەکەدا.")
 
-if __name__ == '__main__':
-    # خستنەگەڕی ماڵپەڕەکە لە پشتەوە (Background)
-    t = threading.Thread(target=run_web)
-    t.start()
-    
-    # خستنەگەڕی بۆتەکە
-    application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    print("بۆتەکە ئامادەیە...")
-    application.run_polling()
+# وەرگرتنی نامەکان لە تێلیگرامەوە (Webhook)
+@app.route('/', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return 'OK', 200
+    return 'Forbidden', 403
+
+# چالاککردنی پەیوەندی نێوان تێلیگرام و Vercel
+@app.route('/set_webhook')
+def set_webhook():
+    webhook_url = request.host_url
+    bot.remove_webhook()
+    bot.set_webhook(url=webhook_url)
+    return f"✅ Webhook بە سەرکەوتوویی بەسترایەوە بە: {webhook_url}", 200
