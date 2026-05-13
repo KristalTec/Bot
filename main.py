@@ -3,7 +3,7 @@ import telebot
 import google.generativeai as genai
 
 # کلیلەکانت
-TOKEN = '8725342011:AAFayx5fayQwUoFLDiXUdWWDVk0NMFI5DcA'
+TOKEN = '8683676881:AAGhLlMGi28Y_v36BWVLZ8UA-x0skMNaiJY'
 GEMINI_API_KEY = 'AIzaSyC0d32dYq3MZt2XJBLlPMggIHtWXSehJs4'
 
 # ڕێکخستنی جێمینای و بۆتەکە
